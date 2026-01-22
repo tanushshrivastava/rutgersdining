@@ -43,6 +43,21 @@ function formatScore(score) {
   return `${Math.round(normalized * 100)}% match`;
 }
 
+function formatProteinDensity(value) {
+  if (!Number.isFinite(value)) return "";
+  return `${(value * 100).toFixed(1)}g/100 cal`;
+}
+
+function formatPlanSummary(plan) {
+  if (!plan) return "";
+  const calories = formatNumber(plan.totalCalories);
+  const protein = formatNumber(plan.totalProtein);
+  const target = Number.isFinite(plan.targetCalories)
+    ? ` / ${formatNumber(plan.targetCalories)} cal target`
+    : "";
+  return `Plan total: ${calories} cal, ${protein}g protein${target}`;
+}
+
 function createPill(hall, checked = true) {
   const label = document.createElement("label");
   label.className = "pill";
@@ -152,16 +167,26 @@ function renderResults(data) {
     meta.appendChild(score);
     meta.appendChild(link);
 
+    const planSummaryText = hall.plan ? formatPlanSummary(hall.plan) : "";
+    if (planSummaryText) {
+      const summary = document.createElement("div");
+      summary.className = "plan-summary";
+      summary.textContent = planSummaryText;
+      card.appendChild(summary);
+    }
+
     const list = document.createElement("div");
     list.className = "item-list";
 
-    if (!hall.items.length) {
+    const itemsToShow = hall.plan?.items?.length ? hall.plan.items : hall.items;
+
+    if (!itemsToShow.length) {
       const empty = document.createElement("div");
       empty.className = "item";
       empty.textContent = "No items parsed for this meal.";
       list.appendChild(empty);
     } else {
-      hall.items.forEach((item) => {
+      itemsToShow.forEach((item) => {
         const row = document.createElement("div");
         row.className = "item";
 
@@ -191,6 +216,10 @@ function renderResults(data) {
           item.carbs ? `${formatNumber(item.carbs)}g carbs` : "",
           item.fat ? `${formatNumber(item.fat)}g fat` : ""
         ].filter(Boolean);
+
+        if (Number.isFinite(item.proteinPerCal)) {
+          macros.push(`P/C ${formatProteinDensity(item.proteinPerCal)}`);
+        }
 
         if (macros.length) {
           const nutritionLabel = document.createElement("span");
@@ -259,16 +288,26 @@ function renderDayPlan(data) {
     header.appendChild(title);
     header.appendChild(subtitle);
 
+    const planSummaryText = meal.plan ? formatPlanSummary(meal.plan) : "";
+    if (planSummaryText) {
+      const summary = document.createElement("div");
+      summary.className = "plan-summary";
+      summary.textContent = planSummaryText;
+      section.appendChild(summary);
+    }
+
     const grid = document.createElement("div");
     grid.className = "results-grid";
 
-    if (!meal.items || meal.items.length === 0) {
+    const itemsToShow = meal.plan?.items?.length ? meal.plan.items : meal.items;
+
+    if (!itemsToShow || itemsToShow.length === 0) {
       const empty = document.createElement("div");
       empty.className = "item-card";
       empty.textContent = "No matching items for this meal.";
       grid.appendChild(empty);
     } else {
-      meal.items.forEach((item) => {
+      itemsToShow.forEach((item) => {
         const card = document.createElement("article");
         card.className = "item-card";
 
@@ -304,6 +343,10 @@ function renderDayPlan(data) {
           item.carbs ? `${formatNumber(item.carbs)}g carbs` : "",
           item.fat ? `${formatNumber(item.fat)}g fat` : ""
         ].filter(Boolean);
+
+        if (Number.isFinite(item.proteinPerCal)) {
+          macros.push(`P/C ${formatProteinDensity(item.proteinPerCal)}`);
+        }
 
         if (macros.length) {
           const nutritionLabel = document.createElement("span");

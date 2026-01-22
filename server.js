@@ -214,7 +214,125 @@ async function fetchMenu(hall, meal, date, options = {}) {
   };
 }
 
+function proteinPerCal(item) {
+  const protein = parseNumber(item?.protein);
+  const calories = parseNumber(item?.calories);
+  if (!Number.isFinite(protein) || !Number.isFinite(calories) || calories <= 0) return null;
+  return protein / calories;
+}
+
+function withDerivedMetrics(items) {
+  return items.map((item) => ({
+    ...item,
+    proteinPerCal: proteinPerCal(item)
+  }));
+}
+
+function sortByProteinDensity(items) {
+  return [...items].sort((a, b) => {
+    const ratioA = a.proteinPerCal ?? -Infinity;
+    const ratioB = b.proteinPerCal ?? -Infinity;
+    if (ratioA !== ratioB) return ratioB - ratioA;
+    const proteinA = parseNumber(a.protein) ?? -Infinity;
+    const proteinB = parseNumber(b.protein) ?? -Infinity;
+    if (proteinA !== proteinB) return proteinB - proteinA;
+    const caloriesA = parseNumber(a.calories) ?? Infinity;
+    const caloriesB = parseNumber(b.calories) ?? Infinity;
+    return caloriesA - caloriesB;
+  });
+}
+
+function buildCaloriePlan(items, targetCalories, options = {}) {
+  const caloriesTarget = parseNumber(targetCalories);
+  if (!Number.isFinite(caloriesTarget) || caloriesTarget <= 0) return null;
+
+  const candidates = items.filter(
+    (item) => Number.isFinite(item.calories) && item.calories > 0
+  );
+  if (!candidates.length) return null;
+
+  const sorted = sortByProteinDensity(candidates);
+  const tolerance =
+    options.tolerance ?? Math.max(60, Math.round(caloriesTarget * 0.08));
+  const maxCalories = caloriesTarget + tolerance;
+
+  const plan = [];
+  let totalCalories = 0;
+  const used = new Set();
+
+  for (const item of sorted) {
+    if (totalCalories + item.calories <= maxCalories) {
+      plan.push(item);
+      totalCalories += item.calories;
+      used.add(item);
+    }
+  }
+
+  let improved = true;
+  while (improved) {
+    improved = false;
+    const currentDiff = Math.abs(caloriesTarget - totalCalories);
+    let bestCandidate = null;
+    let bestDiff = currentDiff;
+
+    for (const item of sorted) {
+      if (used.has(item)) continue;
+      const newTotal = totalCalories + item.calories;
+      if (newTotal > maxCalories) continue;
+      const diff = Math.abs(caloriesTarget - newTotal);
+      if (diff < bestDiff) {
+        bestCandidate = item;
+        bestDiff = diff;
+      }
+    }
+
+    if (bestCandidate) {
+      plan.push(bestCandidate);
+      totalCalories += bestCandidate.calories;
+      used.add(bestCandidate);
+      improved = true;
+    }
+  }
+
+  return plan;
+}
+
+function summarizePlan(items, targetCalories) {
+  const totals = items.reduce(
+    (acc, item) => {
+      acc.calories += parseNumber(item.calories) || 0;
+      acc.protein += parseNumber(item.protein) || 0;
+      acc.carbs += parseNumber(item.carbs) || 0;
+      acc.fat += parseNumber(item.fat) || 0;
+      return acc;
+    },
+    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+  );
+
+  const proteinPerCalValue =
+    totals.calories > 0 ? totals.protein / totals.calories : null;
+
+  return {
+    items,
+    targetCalories: Number.isFinite(targetCalories) ? targetCalories : null,
+    totalCalories: totals.calories || 0,
+    totalProtein: totals.protein || 0,
+    totalCarbs: totals.carbs || 0,
+    totalFat: totals.fat || 0,
+    diffCalories: Number.isFinite(targetCalories)
+      ? totals.calories - targetCalories
+      : null,
+    proteinPerCal: proteinPerCalValue
+  };
+}
+
 function scoreItem(item, goals, mode) {
+  if (mode === "protein-density") {
+    const ratio = proteinPerCal(item);
+    if (!Number.isFinite(ratio)) return null;
+    return -ratio;
+  }
+
   const fields = ["calories", "protein", "carbs", "fat"];
   let total = 0;
   let count = 0;
@@ -245,6 +363,16 @@ function parseGoals(query) {
     carbs: parseNumber(query.carbs),
     fat: parseNumber(query.fat)
   };
+}
+
+function splitGoals(goals, parts) {
+  const count = parts.length || 1;
+  const split = {};
+  Object.entries(goals).forEach(([key, value]) => {
+    if (!Number.isFinite(value)) return;
+    split[key] = value / count;
+  });
+  return split;
 }
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -292,7 +420,9 @@ app.get("/api/recommendations", async (req, res) => {
     .filter(Boolean);
 
   const halls = hallIds.length ? hallIds.map(getHallById).filter(Boolean) : HALLS;
-  const hasGoals = Object.values(goals).some((value) => Number.isFinite(value));
+  const hasGoals =
+    Object.values(goals).some((value) => Number.isFinite(value)) ||
+    mode === "protein-density";
 
   const results = [];
   const errors = [];
@@ -300,9 +430,11 @@ app.get("/api/recommendations", async (req, res) => {
   for (const hall of halls) {
     try {
       const menu = await fetchMenu(hall, meal, date, { debug });
-      let items = menu.items.map((item) => ({ ...item }));
+      let items = withDerivedMetrics(menu.items);
 
-      if (hasGoals) {
+      if (mode === "protein-density") {
+        items = sortByProteinDensity(items);
+      } else if (hasGoals) {
         items = items
           .map((item) => ({
             ...item,
@@ -313,7 +445,12 @@ app.get("/api/recommendations", async (req, res) => {
       }
 
       const topItems = items.slice(0, 6);
-      const bestScore = topItems.length && hasGoals ? topItems[0].score : null;
+      const bestScore =
+        topItems.length && hasGoals && mode !== "protein-density"
+          ? topItems[0].score
+          : null;
+      const planItems = buildCaloriePlan(items, goals.calories);
+      const plan = planItems ? summarizePlan(planItems, goals.calories) : null;
 
       results.push({
         id: hall.id,
@@ -322,6 +459,7 @@ app.get("/api/recommendations", async (req, res) => {
         url: menu.url,
         bestScore,
         items: topItems,
+        plan,
         debug: menu.debug
       });
     } catch (error) {
@@ -353,7 +491,10 @@ app.get("/api/day-plan", async (req, res) => {
     .filter(Boolean);
 
   const halls = hallIds.length ? hallIds.map(getHallById).filter(Boolean) : HALLS;
-  const hasGoals = Object.values(goals).some((value) => Number.isFinite(value));
+  const hasGoals =
+    Object.values(goals).some((value) => Number.isFinite(value)) ||
+    mode === "protein-density";
+  const perMealGoals = splitGoals(goals, DAY_MEALS);
 
   const meals = [];
   const errors = [];
@@ -382,22 +523,31 @@ app.get("/api/day-plan", async (req, res) => {
       }
     }
 
-    let ranked = combined;
-    if (hasGoals) {
+    let ranked = withDerivedMetrics(combined);
+    const activeGoals = perMealGoals;
+
+    if (mode === "protein-density") {
+      ranked = sortByProteinDensity(ranked);
+    } else if (hasGoals) {
       ranked = ranked
         .map((item) => ({
           ...item,
-          score: scoreItem(item, goals, mode)
+          score: scoreItem(item, activeGoals, mode)
         }))
         .filter((item) => item.score !== null)
         .sort((a, b) => a.score - b.score);
     }
 
+    const planItems = buildCaloriePlan(ranked, activeGoals.calories);
+    const plan = planItems ? summarizePlan(planItems, activeGoals.calories) : null;
+
     meals.push({
       meal: meal.id,
       label: meal.label,
       items: ranked.slice(0, 8),
-      itemCount: combined.length
+      itemCount: combined.length,
+      goals: activeGoals,
+      plan
     });
   }
 
