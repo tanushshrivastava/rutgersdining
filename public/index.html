@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rutgers Dining Hall Matchmaker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Space+Grotesk:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="background">
+      <div class="orb orb-one"></div>
+      <div class="orb orb-two"></div>
+      <div class="mesh"></div>
+    </div>
+
+    <main class="page">
+      <header class="hero">
+        <div class="hero-text">
+          <p class="eyebrow">Rutgers dining halls, decoded.</p>
+          <h1>Pick the right hall for your macros.</h1>
+          <p class="lede">
+            Scan the Nutrislice menus, set your nutrition goals, and get the
+            best-matching dining halls with top dishes.
+          </p>
+        </div>
+      </header>
+
+      <section class="panel">
+        <form id="filters" class="filters">
+          <div class="filter-row">
+            <div class="field">
+              <label for="date">Date</label>
+              <input type="date" id="date" name="date" />
+            </div>
+            <div class="field">
+              <label for="meal">Meal</label>
+              <select id="meal" name="meal"></select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Dining halls</label>
+            <div id="hall-options" class="pill-group"></div>
+          </div>
+
+          <div class="field">
+            <label>Nutrition goals</label>
+            <div class="goal-grid">
+              <div class="field macro-field">
+                <div class="field-label">
+                  <label for="calories">Calories</label>
+                  <label class="toggle">
+                    <input type="checkbox" id="calories-enabled" checked />
+                    <span>Use</span>
+                  </label>
+                </div>
+                <input
+                  type="number"
+                  id="calories"
+                  name="calories"
+                  placeholder="650"
+                  min="0"
+                />
+              </div>
+              <div class="field macro-field">
+                <div class="field-label">
+                  <label for="protein">Protein (g)</label>
+                  <label class="toggle">
+                    <input type="checkbox" id="protein-enabled" checked />
+                    <span>Use</span>
+                  </label>
+                </div>
+                <input
+                  type="number"
+                  id="protein"
+                  name="protein"
+                  placeholder="35"
+                  min="0"
+                />
+              </div>
+              <div class="field macro-field">
+                <div class="field-label">
+                  <label for="carbs">Carbs (g)</label>
+                  <label class="toggle">
+                    <input type="checkbox" id="carbs-enabled" checked />
+                    <span>Use</span>
+                  </label>
+                </div>
+                <input
+                  type="number"
+                  id="carbs"
+                  name="carbs"
+                  placeholder="70"
+                  min="0"
+                />
+              </div>
+              <div class="field macro-field">
+                <div class="field-label">
+                  <label for="fat">Fat (g)</label>
+                  <label class="toggle">
+                    <input type="checkbox" id="fat-enabled" checked />
+                    <span>Use</span>
+                  </label>
+                </div>
+                <input
+                  type="number"
+                  id="fat"
+                  name="fat"
+                  placeholder="20"
+                  min="0"
+                />
+              </div>
+              <div class="field">
+                <label for="mode">Goal style</label>
+                <select id="mode" name="mode">
+                  <option value="closest">Closest match</option>
+                  <option value="under">Stay under goals</option>
+                  <option value="over">Meet minimum goals</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="field inline-toggle day-plan-toggle">
+            <label class="toggle">
+              <input type="checkbox" id="day-plan" />
+              <span>Plan whole day (breakfast + lunch + dinner)</span>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn primary">Find best halls</button>
+            <button type="button" id="reset" class="btn ghost">Reset</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="results">
+        <div class="results-header">
+          <h2>Recommendations</h2>
+          <p class="subtext">
+            Ranked by the closest nutrition match, with top dishes pulled from
+            each hall.
+          </p>
+        </div>
+        <p id="status" class="status" aria-live="polite"></p>
+        <div id="results" class="results-grid"></div>
+        <div id="errors" class="errors"></div>
+        <p class="note">
+          Data is retrieved from Nutrislice API. Menus change quickly, so refresh if
+          you see gaps.
+        </p>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
