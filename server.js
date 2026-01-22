@@ -228,6 +228,20 @@ function withDerivedMetrics(items) {
   }));
 }
 
+function meetsGoalConstraints(item, goals, mode) {
+  if (mode !== "under" && mode !== "over") return true;
+  let hasGoal = false;
+  for (const field of ["calories", "protein", "carbs", "fat"]) {
+    const goal = goals[field];
+    const value = parseNumber(item[field]);
+    if (!Number.isFinite(goal) || !Number.isFinite(value)) continue;
+    hasGoal = true;
+    if (mode === "under" && value > goal) return false;
+    if (mode === "over" && value < goal) return false;
+  }
+  return true;
+}
+
 function sortByProteinDensity(items) {
   return [...items].sort((a, b) => {
     const ratioA = a.proteinPerCal ?? -Infinity;
@@ -242,6 +256,10 @@ function sortByProteinDensity(items) {
   });
 }
 
+function filterProteinDensityEligible(items) {
+  return items.filter((item) => Number.isFinite(item.proteinPerCal));
+}
+
 function buildCaloriePlan(items, targetCalories, options = {}) {
   const caloriesTarget = parseNumber(targetCalories);
   if (!Number.isFinite(caloriesTarget) || caloriesTarget <= 0) return null;
@@ -251,7 +269,9 @@ function buildCaloriePlan(items, targetCalories, options = {}) {
   );
   if (!candidates.length) return null;
 
-  const sorted = sortByProteinDensity(candidates);
+  const sorted = options.useProvidedOrder
+    ? [...candidates]
+    : sortByProteinDensity(candidates);
   const tolerance =
     options.tolerance ?? Math.max(60, Math.round(caloriesTarget * 0.08));
   const maxCalories = caloriesTarget + tolerance;
@@ -327,12 +347,6 @@ function summarizePlan(items, targetCalories) {
 }
 
 function scoreItem(item, goals, mode) {
-  if (mode === "protein-density") {
-    const ratio = proteinPerCal(item);
-    if (!Number.isFinite(ratio)) return null;
-    return -ratio;
-  }
-
   const fields = ["calories", "protein", "carbs", "fat"];
   let total = 0;
   let count = 0;
@@ -413,6 +427,7 @@ app.get("/api/recommendations", async (req, res) => {
   const meal = req.query.meal || "lunch";
   const goals = parseGoals(req.query);
   const mode = req.query.mode || "closest";
+  const sort = req.query.sort || "match";
   const debug = req.query.debug === "1";
   const hallIds = (req.query.halls || "")
     .split(",")
@@ -420,9 +435,7 @@ app.get("/api/recommendations", async (req, res) => {
     .filter(Boolean);
 
   const halls = hallIds.length ? hallIds.map(getHallById).filter(Boolean) : HALLS;
-  const hasGoals =
-    Object.values(goals).some((value) => Number.isFinite(value)) ||
-    mode === "protein-density";
+  const hasGoals = Object.values(goals).some((value) => Number.isFinite(value));
 
   const results = [];
   const errors = [];
@@ -432,7 +445,12 @@ app.get("/api/recommendations", async (req, res) => {
       const menu = await fetchMenu(hall, meal, date, { debug });
       let items = withDerivedMetrics(menu.items);
 
-      if (mode === "protein-density") {
+      if (hasGoals && (mode === "under" || mode === "over")) {
+        items = items.filter((item) => meetsGoalConstraints(item, goals, mode));
+      }
+
+      if (sort === "protein-density") {
+        items = filterProteinDensityEligible(items);
         items = sortByProteinDensity(items);
       } else if (hasGoals) {
         items = items
@@ -445,11 +463,10 @@ app.get("/api/recommendations", async (req, res) => {
       }
 
       const topItems = items.slice(0, 6);
-      const bestScore =
-        topItems.length && hasGoals && mode !== "protein-density"
-          ? topItems[0].score
-          : null;
-      const planItems = buildCaloriePlan(items, goals.calories);
+      const bestScore = topItems.length && hasGoals && sort !== "protein-density"
+        ? topItems[0].score
+        : null;
+      const planItems = buildCaloriePlan(items, goals.calories, { useProvidedOrder: true });
       const plan = planItems ? summarizePlan(planItems, goals.calories) : null;
 
       results.push({
@@ -473,7 +490,8 @@ app.get("/api/recommendations", async (req, res) => {
       meal: getMealSlug(meal),
       halls: halls.map((hall) => hall.id),
       goals,
-      mode
+      mode,
+      sort
     },
     halls: results,
     errors
@@ -484,6 +502,7 @@ app.get("/api/day-plan", async (req, res) => {
   const date = normalizeDate(req.query.date);
   const goals = parseGoals(req.query);
   const mode = req.query.mode || "closest";
+  const sort = req.query.sort || "match";
   const debug = req.query.debug === "1";
   const hallIds = (req.query.halls || "")
     .split(",")
@@ -491,9 +510,7 @@ app.get("/api/day-plan", async (req, res) => {
     .filter(Boolean);
 
   const halls = hallIds.length ? hallIds.map(getHallById).filter(Boolean) : HALLS;
-  const hasGoals =
-    Object.values(goals).some((value) => Number.isFinite(value)) ||
-    mode === "protein-density";
+  const hasGoals = Object.values(goals).some((value) => Number.isFinite(value));
   const perMealGoals = splitGoals(goals, DAY_MEALS);
 
   const meals = [];
@@ -526,7 +543,12 @@ app.get("/api/day-plan", async (req, res) => {
     let ranked = withDerivedMetrics(combined);
     const activeGoals = perMealGoals;
 
-    if (mode === "protein-density") {
+    if (hasGoals && (mode === "under" || mode === "over")) {
+      ranked = ranked.filter((item) => meetsGoalConstraints(item, activeGoals, mode));
+    }
+
+    if (sort === "protein-density") {
+      ranked = filterProteinDensityEligible(ranked);
       ranked = sortByProteinDensity(ranked);
     } else if (hasGoals) {
       ranked = ranked
@@ -538,7 +560,7 @@ app.get("/api/day-plan", async (req, res) => {
         .sort((a, b) => a.score - b.score);
     }
 
-    const planItems = buildCaloriePlan(ranked, activeGoals.calories);
+    const planItems = buildCaloriePlan(ranked, activeGoals.calories, { useProvidedOrder: true });
     const plan = planItems ? summarizePlan(planItems, activeGoals.calories) : null;
 
     meals.push({
@@ -556,7 +578,8 @@ app.get("/api/day-plan", async (req, res) => {
       date,
       halls: halls.map((hall) => hall.id),
       goals,
-      mode
+      mode,
+      sort
     },
     meals,
     errors

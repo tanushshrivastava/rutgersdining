@@ -12,6 +12,7 @@ const elements = {
   fat: document.querySelector("#fat"),
   fatEnabled: document.querySelector("#fat-enabled"),
   mode: document.querySelector("#mode"),
+  sort: document.querySelector("#sort"),
   dayPlan: document.querySelector("#day-plan"),
   results: document.querySelector("#results"),
   status: document.querySelector("#status"),
@@ -122,6 +123,7 @@ function buildParams(options = {}) {
     params.set("fat", elements.fat.value);
   }
   if (elements.mode.value) params.set("mode", elements.mode.value);
+  if (elements.sort.value) params.set("sort", elements.sort.value);
 
   return params;
 }
@@ -443,6 +445,7 @@ function resetFilters() {
   elements.carbs.value = "";
   elements.fat.value = "";
   elements.mode.value = "closest";
+  elements.sort.value = "match";
   elements.caloriesEnabled.checked = true;
   elements.proteinEnabled.checked = true;
   elements.carbsEnabled.checked = true;
